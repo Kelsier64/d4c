@@ -133,7 +133,7 @@ class OpenCodeClient:
             
         url = f"{self.base_url}/session/{session_id}/message"
         payload = {
-            "parts": [{"text": content}]
+            "parts": [{"type": "text", "text": content}]
         }
         async with self.session.post(url, json=payload) as response:
             response.raise_for_status()
