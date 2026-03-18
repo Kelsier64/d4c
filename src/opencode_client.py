@@ -96,10 +96,10 @@ class OpenCodeClient:
         """
         self.session_to_channel[session_id] = channel_id
 
-    async def create_session(self) -> str:
+    async def create_session(self) -> tuple[str, str]:
         """
         Create a new OpenCode session via REST.
-        Returns the session ID.
+        Returns the session ID and the project directory.
         """
         if not self.session:
             raise RuntimeError("ClientSession not initialized. Call connect() first.")
@@ -108,7 +108,7 @@ class OpenCodeClient:
         async with self.session.post(url) as response:
             response.raise_for_status()
             data = await response.json()
-            return data["id"]
+            return data["id"], data.get("directory", "")
 
     async def delete_session(self, session_id: str):
         """
@@ -196,8 +196,64 @@ class OpenCodeClient:
                                 data_str = line[6:].decode("utf-8").strip()
                                 if not data_str:
                                     continue
-                                payload = json.loads(data_str)
-                                if payload.get("type") == "message.part.updated":
+                                event_data = json.loads(data_str)
+                                payload = event_data.get("payload", event_data)
+                                if payload.get("type") == "question.asked":
+                                        # Handle new top-level question event format
+                                        props = payload.get("properties", {})
+                                        session_id = props.get("sessionID")
+                                        if not session_id:
+                                            continue
+                                            
+                                        channel_id = self.session_to_channel.get(session_id)
+                                        if not channel_id:
+                                            continue
+
+                                        state = self.get_channel_state(channel_id)
+                                        if not state:
+                                            continue
+                                            
+                                        questions = props.get("questions", [])
+                                        if not questions:
+                                            continue
+                                            
+                                        q_data = questions[0]
+                                        question_text = q_data.get("question", "Question from OpenCode")
+                                        options = q_data.get("options", [])
+                                        multiple = q_data.get("multiple", False)
+                                        request_id = props.get("id")
+                                        
+                                        if not options or not request_id:
+                                            continue
+
+                                        async def on_answer(answers: list[str]):
+                                            logger.info(f"Answered SSE question {request_id} with {answers}")
+                                            if not self.session:
+                                                return
+                                            # Reply to question endpoint directly
+                                            url = f"{self.base_url}/question/{request_id}/reply"
+                                            # The API expects an array of arrays if there are multiple questions,
+                                            # but since we only process one question at a time, we wrap answers in an array.
+                                            payload = {
+                                                "answers": [answers]
+                                            }
+                                            try:
+                                                async with self.session.post(url, json=payload) as response:
+                                                    if response.status >= 400:
+                                                        logger.warning(f"Failed to submit answer to question API. Status: {response.status}")
+                                                        # Fallback to sending as a text message
+                                                        msg_url = f"{self.base_url}/session/{session_id}/message"
+                                                        text_payload = {"parts": [{"type": "text", "text": ", ".join(answers)}]}
+                                                        await self.session.post(msg_url, json=text_payload)
+                                                    else:
+                                                        logger.info(f"Successfully submitted answer for {request_id}")
+                                            except Exception as e:
+                                                logger.error(f"Error submitting answer: {e}")
+
+                                        view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
+                                        await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
+                                        
+                                elif payload.get("type") == "message.part.updated":
                                     props = payload.get("properties", {})
                                     part = props.get("part", {})
                                     session_id = part.get("sessionID")
@@ -216,23 +272,17 @@ class OpenCodeClient:
                                     ptype = part.get("type")
                                     tool_name = part.get("tool")
                                     
-                                    if ptype == "tool" and "state" in part:
+                                    if ptype == "tool" and "state" in part and tool_name != "question":
                                         status = part["state"].get("status", "running")
+                                        # Normalize status for UI
+                                        if status in ["success", "completed"]:
+                                            status = "done"
+                                        elif status in ["failed", "error"]:
+                                            status = "error"
+                                        
                                         # Use tool name or part ID as task_id
                                         task_id = part.get("id", tool_name)
                                         await state.update_and_render(task_id, tool_name, status, "")
-                                    elif ptype == "question" or tool_name == "question":
-                                        # Handle routing the question to the UI
-                                        question_text = part.get("question", "Question from OpenCode")
-                                        options = part.get("options", [])
-                                        multiple = part.get("multiple", False)
-                                        question_id = part.get("id", "q")
-
-                                        async def on_answer(answers: list[str]):
-                                            logger.info(f"Answered SSE question {question_id} with {answers}")
-
-                                        view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
-                                        await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
 
                             except UnicodeDecodeError as e:
                                 logger.error(f"Failed to decode SSE line: {e}")

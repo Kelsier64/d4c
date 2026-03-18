@@ -4,6 +4,7 @@ from discord.ext import commands
 import uuid
 import asyncio
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,25 @@ class SessionManager(commands.Cog):
             return
 
         try:
-            session_id = await self.bot.opencode_client.create_session()
+            session_id, directory = await self.bot.opencode_client.create_session()
             self.bot.opencode_client.register_session(session_id, channel_id)
             state['active_sessions'][channel_id] = {"agent": "default", "opencode_session_id": session_id}
-            await interaction.response.send_message("✅ Channel registered as a new session. You can now chat with the agent.")
+            
+            project_name = os.path.basename(directory.rstrip('/')) if directory else "OpenCode"
+            guild = interaction.guild
+            if guild:
+                category = discord.utils.get(guild.categories, name=project_name)
+                if not category:
+                    category = await guild.create_category(project_name)
+                
+                # Try to move the channel to the category
+                try:
+                    if isinstance(interaction.channel, discord.TextChannel):
+                        await interaction.channel.edit(category=category)
+                except discord.Forbidden:
+                    pass
+
+            await interaction.response.send_message(f"✅ Channel registered as a new session under project **{project_name}**.")
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to create OpenCode session: {e}", ephemeral=True)
 
@@ -169,15 +185,21 @@ class SessionManager(commands.Cog):
 
             try:
                 # Create OpenCode session FIRST so we don't mutate Discord on API failure
-                session_id = await self.bot.opencode_client.create_session()
+                session_id, directory = await self.bot.opencode_client.create_session()
                 self.bot.opencode_client.register_session(session_id, message.channel.id)
 
-                # Rename the old welcome channel to task-{uuid}
-                await message.channel.edit(name=new_channel_name)
+                project_name = os.path.basename(directory.rstrip('/')) if directory else "OpenCode"
+                category = discord.utils.get(guild.categories, name=project_name)
+                if not category:
+                    category = await guild.create_category(project_name)
+
+                original_category = message.channel.category
+
+                # Rename the old welcome channel to task-{uuid} and move to category
+                await message.channel.edit(name=new_channel_name, category=category)
                 
-                # THEN create a new #welcome channel
-                category = message.channel.category
-                new_welcome = await guild.create_text_channel('welcome', category=category)
+                # THEN create a new #welcome channel where the old one was
+                new_welcome = await guild.create_text_channel('welcome', category=original_category)
                 await new_welcome.send("👋 Welcome! Send a message here to start a new task session.")
 
                 # Register the renamed channel
