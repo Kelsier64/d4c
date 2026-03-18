@@ -19,7 +19,7 @@ class MyBot(commands.Bot):
         # Initialize Client
         from src.opencode_client import OpenCodeClient
         self.opencode_client = OpenCodeClient(base_url="http://127.0.0.1:4096", bot=self)
-        self.loop.create_task(self.opencode_client.connect())
+        await self.opencode_client.connect()
         
         # Load cogs
         await self.load_extension("src.cogs.session_manager")
@@ -30,6 +30,11 @@ class MyBot(commands.Bot):
     async def on_ready(self):
         print(f"🤖 登入成功！Bot 名稱: {self.user} (ID: {self.user.id})")
         print("------")
+
+    async def close(self):
+        if hasattr(self, 'opencode_client'):
+            await self.opencode_client.close()
+        await super().close()
 
 bot = MyBot()
 
