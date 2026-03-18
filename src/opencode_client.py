@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import discord
 import aiohttp
@@ -59,6 +60,8 @@ class OpenCodeClient:
         self.bot = bot
         self.session: aiohttp.ClientSession | None = None
         self.channel_states: dict[int, ChannelProgressState] = {}
+        self.session_to_channel: dict[str, int] = {}
+        self._sse_task: asyncio.Task | None = None
 
     def get_channel_state(self, channel_id: int) -> ChannelProgressState | None:
         if channel_id not in self.channel_states:
@@ -74,6 +77,7 @@ class OpenCodeClient:
         """
         self.session = aiohttp.ClientSession()
         logger.info("Initialized aiohttp ClientSession for OpenCodeClient.")
+        self._sse_task = asyncio.create_task(self._listen_sse())
 
     async def close(self):
         """
@@ -147,3 +151,69 @@ class OpenCodeClient:
                     
                 view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
                 await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
+
+    async def _listen_sse(self):
+        """
+        Background task to consume the global SSE event stream.
+        """
+        if not self.session:
+            return
+
+        url = f"{self.base_url}/global/event"
+        try:
+            async with self.session.get(url) as response:
+                logger.info(f"Connected to OpenCode SSE stream at {url}")
+                async for line in response.content:
+                    line = line.strip()
+                    if line.startswith(b"data: "):
+                        data_str = line[6:].decode("utf-8").strip()
+                        if not data_str:
+                            continue
+                        try:
+                            payload = json.loads(data_str)
+                            if payload.get("type") == "message.part.updated":
+                                props = payload.get("properties", {})
+                                part = props.get("part", {})
+                                session_id = part.get("sessionID")
+
+                                if not session_id:
+                                    continue
+                                
+                                channel_id = self.session_to_channel.get(session_id)
+                                if not channel_id:
+                                    continue
+
+                                state = self.get_channel_state(channel_id)
+                                if not state:
+                                    continue
+
+                                ptype = part.get("type")
+                                tool_name = part.get("tool")
+                                
+                                if ptype == "tool" and "state" in part:
+                                    status = part["state"].get("status", "running")
+                                    # Use tool name or part ID as task_id
+                                    task_id = part.get("id", tool_name)
+                                    await state.update_and_render(task_id, tool_name, status, "")
+                                elif ptype == "question" or tool_name == "question":
+                                    # Handle routing the question to the UI
+                                    question_text = part.get("question", "Question from OpenCode")
+                                    options = part.get("options", [])
+                                    multiple = part.get("multiple", False)
+                                    question_id = part.get("id", "q")
+
+                                    async def on_answer(answers: list[str]):
+                                        logger.info(f"Answered SSE question {question_id} with {answers}")
+
+                                    view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
+                                    await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
+
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse SSE JSON: {data_str}")
+                        except Exception as e:
+                            logger.error(f"Error processing SSE event: {e}")
+        except asyncio.CancelledError:
+            logger.info("SSE listener task cancelled.")
+        except Exception as e:
+            logger.error(f"SSE listener failed: {e}")
+            # Could add reconnect logic here, but for now just log it
