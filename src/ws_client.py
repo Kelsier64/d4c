@@ -4,6 +4,7 @@ import json
 import logging
 import discord
 from src.ui.progress_embed import ProgressEmbedManager
+from src.ui.question_view import OpenCodeView
 from src.utils.debouncer import AsyncDebouncer
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,24 @@ class OpenCodeWSClient:
                     status = "error"
                 
                 await state.update_and_render(task_id, tool, status, details)
+        elif channel_id and msg_type == "question":
+            state = self.get_channel_state(int(channel_id))
+            if state:
+                question_text = data.get("question", "Please select an option:")
+                options = data.get("options", [])
+                multiple = data.get("multiple", False)
+                question_id = data.get("question_id")
+                
+                async def on_answer(answers: list[str]):
+                    await self.send_message({
+                        "type": "answer",
+                        "channel_id": channel_id,
+                        "question_id": question_id,
+                        "answers": answers
+                    })
+                    
+                view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
+                await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
 
     async def send_message(self, data: dict):
         """
