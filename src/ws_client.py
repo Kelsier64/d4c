@@ -15,6 +15,7 @@ class ChannelProgressState:
         self.message: discord.Message | None = None
         # Each channel gets its own debouncer
         self.debouncer = AsyncDebouncer(delay=3.0)
+        self._debounced_render = self.debouncer(self._render)
 
     async def _edit_message_with_retry(self, embed: discord.Embed):
         retries = 3
@@ -28,9 +29,9 @@ class ChannelProgressState:
                 return
             except discord.HTTPException as e:
                 if e.status == 429:
-                    # Rate limited
-                    logger.warning(f"Rate limited updating embed, backing off for {backoff}s")
-                    await asyncio.sleep(backoff)
+                    sleep_time = getattr(e, 'retry_after', backoff)
+                    logger.warning(f"Rate limited updating embed, backing off for {sleep_time}s")
+                    await asyncio.sleep(sleep_time)
                     backoff *= 2
                 else:
                     logger.error(f"Failed to update progress embed: {e}")
@@ -38,16 +39,16 @@ class ChannelProgressState:
             except Exception as e:
                 logger.error(f"Unexpected error updating progress embed: {e}")
                 return
+                
+        logger.error("Failed to update progress embed after all retries.")
+
+    async def _render(self):
+        embed = self.manager.build_embed()
+        await self._edit_message_with_retry(embed)
 
     async def update_and_render(self, task_id: str, tool: str, status: str, details: str = ""):
         self.manager.update_task(task_id, tool, status, details)
-        
-        @self.debouncer
-        async def render():
-            embed = self.manager.build_embed()
-            await self._edit_message_with_retry(embed)
-            
-        await render()
+        await self._debounced_render()
 
 class OpenCodeWSClient:
     """

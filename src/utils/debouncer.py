@@ -25,8 +25,11 @@ class AsyncDebouncer:
             now = time.time()
             time_since_last_run = now - self._last_execution_time
 
-            # If enough time has passed and no task is waiting, execute immediately
-            if time_since_last_run >= self.delay and (self._task is None or self._task.done()):
+            if self._task and not self._task.done():
+                self._task.cancel()
+
+            # If enough time has passed, execute immediately
+            if time_since_last_run >= self.delay:
                 self._last_execution_time = now
                 try:
                     await self._func(*self._latest_args, **self._latest_kwargs)
@@ -35,17 +38,17 @@ class AsyncDebouncer:
                     logging.getLogger(__name__).error(f"Debounced function error: {e}")
                 return
 
-            # Otherwise, if no task is waiting, schedule one
-            if self._task is None or self._task.done():
-                wait_time = self.delay - time_since_last_run
-                if wait_time < 0:
-                    wait_time = self.delay
-                self._task = asyncio.create_task(self._wait_and_execute(wait_time))
+            # Otherwise, schedule a new task
+            self._task = asyncio.create_task(self._wait_and_execute(self.delay))
 
         return wrapper
 
     async def _wait_and_execute(self, wait_time: float):
-        await asyncio.sleep(wait_time)
+        try:
+            await asyncio.sleep(wait_time)
+        except asyncio.CancelledError:
+            return
+            
         self._last_execution_time = time.time()
         if self._func:
             try:
