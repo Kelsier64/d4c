@@ -38,13 +38,14 @@ This will spin up the backend agent listener. The Discord bot will use this exac
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repository-url>
+   git clone https://github.com/Kelsier64/d4c.git
    cd d4c
    ```
 
 2. **Install dependencies using `uv`:**
    ```bash
    uv sync
+   uv pip install -e .
    ```
    *This command automatically creates a `.venv` virtual environment and installs all required packages based on `pyproject.toml`.*
 
@@ -57,8 +58,9 @@ This will spin up the backend agent listener. The Discord bot will use this exac
    ```
 
 4. **Start the bot:**
+   Run the bot as a Python module to ensure internal imports resolve correctly:
    ```bash
-   uv run python src/bot.py
+   uv run python -m src.bot
    ```
 
 ## Usage
