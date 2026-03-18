@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 import uuid
 import asyncio
-from typing import cast
 
 class SessionManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -46,7 +45,7 @@ class SessionManager(commands.Cog):
             return
 
         state['active_sessions'][channel_id] = {"agent": "default"}
-        await interaction.response.send_message(f"✅ Channel registered as a new session. You can now chat with the agent.")
+        await interaction.response.send_message("✅ Channel registered as a new session. You can now chat with the agent.")
 
     @app_commands.command(name="exit", description="End the current session")
     async def exit_session(self, interaction: discord.Interaction):
