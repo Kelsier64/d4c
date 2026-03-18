@@ -16,6 +16,11 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Initialize WebSocket Client
+        from src.ws_client import OpenCodeWSClient
+        self.ws_client = OpenCodeWSClient(uri="ws://localhost:8765", bot=self)
+        self.loop.create_task(self.ws_client.connect())
+        
         # Load cogs
         await self.load_extension("src.cogs.session_manager")
         # 同步 Slash Commands 到 Discord 伺服器
