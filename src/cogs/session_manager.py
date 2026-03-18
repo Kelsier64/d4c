@@ -118,6 +118,23 @@ class SessionManager(commands.Cog):
         
         await interaction.response.send_message(f"🔄 Switched agent to **{agent_value}** for this session. (Placeholder)")
 
+    async def _handle_opencode_response(self, channel: discord.TextChannel, response_data: dict):
+        """Helper to extract text parts from OpenCode response and send to Discord."""
+        if not response_data or not isinstance(response_data, dict):
+            return
+            
+        parts = response_data.get("parts", [])
+        for part in parts:
+            if part.get("type") == "text":
+                text_content = part.get("text", "")
+                if text_content:
+                    # Discord has a 2000 character limit per message
+                    for i in range(0, len(text_content), 2000):
+                        try:
+                            await channel.send(text_content[i:i+2000])
+                        except Exception as e:
+                            logger.error(f"Failed to send text to channel {channel.id}: {e}")
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot:
@@ -169,7 +186,8 @@ class SessionManager(commands.Cog):
                 await reply.edit(content=f"✅ Session started! I have renamed this channel to `#{new_channel_name}` and created a new <#{new_welcome.id}> channel.")
                 
                 # Send the initial message to OpenCode
-                await self.bot.opencode_client.send_message(session_id, message.content)
+                response_data = await self.bot.opencode_client.send_message(session_id, message.content)
+                await self._handle_opencode_response(message.channel, response_data)
                 
             except discord.Forbidden:
                 await reply.edit(content="❌ I don't have permission to manage channels!")
@@ -182,7 +200,8 @@ class SessionManager(commands.Cog):
             session_id = state['active_sessions'][message.channel.id].get("opencode_session_id")
             if session_id:
                 try:
-                    await self.bot.opencode_client.send_message(session_id, message.content)
+                    response_data = await self.bot.opencode_client.send_message(session_id, message.content)
+                    await self._handle_opencode_response(message.channel, response_data)
                 except Exception as e:
                     await message.channel.send(f"❌ Failed to send message to OpenCode: {e}")
 
