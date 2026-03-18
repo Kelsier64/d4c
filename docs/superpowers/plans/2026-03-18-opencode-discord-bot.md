@@ -48,8 +48,8 @@ git commit -m "build: add websockets dependency and base project structure"
 - [ ] **Step 1: Create session_manager cog**
 Implement a Cog that holds the current operating mode (`FULL_CONTROL` or `NORMAL`) and a dictionary tracking active sessions by channel ID.
 
-- [ ] **Step 2: Implement /mode, /new, and /exit commands**
-In `session_manager.py`, add slash commands. `/mode` toggles the global state. `/new` (if in NORMAL mode) registers the current channel in the active sessions dict. `/exit` removes it.
+- [ ] **Step 2: Implement /mode, /new, /exit, and /agent commands**
+In `session_manager.py`, add slash commands. `/mode` toggles the global state. `/new` (if in NORMAL mode) registers the current channel. `/exit` removes it and provides an option to delete/archive the channel if in FULL_CONTROL mode. `/agent` sends an agent switch command via WS.
 
 - [ ] **Step 3: Implement Full Control #welcome logic**
 In the same Cog, add an `on_message` listener. If in `FULL_CONTROL` mode, and the message is in a channel named `welcome` (and not from a bot), rename the channel to `#task-<uuid>`, create a new `#welcome` channel, and register the renamed channel in active sessions.
@@ -77,8 +77,8 @@ Implement `src/utils/debouncer.py` with a class `AsyncDebouncer` that groups rap
 - [ ] **Step 2: Create Progress Embed builder**
 Implement `src/ui/progress_embed.py` with a class that maintains a list of recent tool executions and generates a `discord.Embed` (Yellow for running, Green for done, Red for error).
 
-- [ ] **Step 3: Connect WS events to Embed updates**
-Create a manager (e.g., in a new `ws_handler` or within the bot) that listens to WS tool events, updates the `ProgressEmbed` state for the corresponding channel, and calls the debounced edit function on the Discord message.
+- [ ] **Step 3: Connect WS events to Embed updates with Retry**
+Create a manager that listens to WS tool events, updates the `ProgressEmbed` state, and calls the debounced edit function. Wrap the API call in an exponential backoff retry handler (e.g., catching `discord.HTTPException` for 429 status) to handle Discord API limits gracefully.
 
 - [ ] **Step 4: Commit Progress Embeds**
 ```bash
