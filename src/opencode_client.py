@@ -3,6 +3,7 @@ import json
 import logging
 import discord
 import aiohttp
+import os
 from src.ui.progress_embed import ProgressEmbedManager
 from src.ui.question_view import OpenCodeView
 from src.utils.debouncer import AsyncDebouncer
@@ -62,6 +63,9 @@ class OpenCodeClient:
         self.channel_states: dict[int, ChannelProgressState] = {}
         self.session_to_channel: dict[str, int] = {}
         self._sse_task: asyncio.Task | None = None
+        
+        password = os.getenv("OPENCODE_SERVER_PASSWORD")
+        self.auth = aiohttp.BasicAuth("opencode", password) if password else None
 
     def get_channel_state(self, channel_id: int) -> ChannelProgressState | None:
         if channel_id not in self.channel_states:
@@ -75,7 +79,7 @@ class OpenCodeClient:
         """
         Initialize the HTTP session.
         """
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(auth=self.auth)
         logger.info("Initialized aiohttp ClientSession for OpenCodeClient.")
         self._sse_task = asyncio.create_task(self._listen_sse())
 
@@ -187,6 +191,7 @@ class OpenCodeClient:
                     async for line in response.content:
                         line = line.strip()
                         if line.startswith(b"data: "):
+                            data_str = ""
                             try:
                                 data_str = line[6:].decode("utf-8").strip()
                                 if not data_str:
@@ -232,7 +237,7 @@ class OpenCodeClient:
                             except UnicodeDecodeError as e:
                                 logger.error(f"Failed to decode SSE line: {e}")
                             except json.JSONDecodeError:
-                                logger.error(f"Failed to parse SSE JSON: {data_str}")
+                                logger.error(f"Failed to parse SSE JSON: {data_str if 'data_str' in locals() else 'unknown'}")
                             except Exception as e:
                                 logger.error(f"Error processing SSE event: {e}")
             except asyncio.CancelledError:
