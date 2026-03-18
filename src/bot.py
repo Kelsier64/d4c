@@ -16,10 +16,10 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Initialize WebSocket Client
-        from src.ws_client import OpenCodeWSClient
-        self.ws_client = OpenCodeWSClient(uri="ws://localhost:8765", bot=self)
-        self.loop.create_task(self.ws_client.connect())
+        # Initialize Client
+        from src.opencode_client import OpenCodeClient
+        self.opencode_client = OpenCodeClient(base_url="http://127.0.0.1:4096", bot=self)
+        self.loop.create_task(self.opencode_client.connect())
         
         # Load cogs
         await self.load_extension("src.cogs.session_manager")

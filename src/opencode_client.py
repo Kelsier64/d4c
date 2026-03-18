@@ -1,8 +1,7 @@
 import asyncio
-import websockets
-import json
 import logging
 import discord
+import aiohttp
 from src.ui.progress_embed import ProgressEmbedManager
 from src.ui.question_view import OpenCodeView
 from src.utils.debouncer import AsyncDebouncer
@@ -51,15 +50,14 @@ class ChannelProgressState:
         self.manager.update_task(task_id, tool, status, details)
         await self._debounced_render()
 
-class OpenCodeWSClient:
+class OpenCodeClient:
     """
-    WebSocket client to connect to OpenCode and handle real-time UI updates.
+    HTTP/SSE client to connect to OpenCode and handle real-time UI updates.
     """
-    def __init__(self, uri: str, bot: discord.Client | None = None):
-        self.uri = uri
+    def __init__(self, base_url: str, bot: discord.Client | None = None):
+        self.base_url = base_url.rstrip("/")
         self.bot = bot
-        self.connection = None
-        self._connected = asyncio.Event()
+        self.session: aiohttp.ClientSession | None = None
         self.channel_states: dict[int, ChannelProgressState] = {}
 
     def get_channel_state(self, channel_id: int) -> ChannelProgressState | None:
@@ -72,45 +70,50 @@ class OpenCodeWSClient:
 
     async def connect(self):
         """
-        Connect to the WebSocket server and start listening for messages.
+        Initialize the HTTP session.
         """
-        while True:
-            try:
-                logger.info(f"Attempting to connect to {self.uri}...")
-                async with websockets.connect(self.uri) as websocket:
-                    self.connection = websocket
-                    self._connected.set()
-                    logger.info(f"Connected to {self.uri}")
-                    await self.listen()
-            except websockets.ConnectionClosed as e:
-                logger.warning(f"Connection closed: {e}. Reconnecting in 5 seconds...")
-            except Exception as e:
-                logger.error(f"WebSocket error: {e}. Reconnecting in 5 seconds...")
-            finally:
-                self.connection = None
-                self._connected.clear()
-                await asyncio.sleep(5)
+        self.session = aiohttp.ClientSession()
+        logger.info("Initialized aiohttp ClientSession for OpenCodeClient.")
 
-    async def listen(self):
+    async def close(self):
         """
-        Listen for incoming messages from the WebSocket server.
+        Close the HTTP session.
         """
-        if not self.connection:
-            return
+        if self.session:
+            await self.session.close()
 
-        async for message in self.connection:
-            try:
-                data = json.loads(message)
-                await self.on_message(data)
-            except json.JSONDecodeError:
-                logger.error(f"Received invalid JSON message: {message}")
-            except Exception as e:
-                logger.error(f"Error handling message: {e}")
+    async def create_session(self) -> str:
+        """
+        Create a new OpenCode session via REST.
+        Returns the session ID.
+        """
+        if not self.session:
+            raise RuntimeError("ClientSession not initialized. Call connect() first.")
+            
+        url = f"{self.base_url}/session"
+        async with self.session.post(url) as response:
+            response.raise_for_status()
+            data = await response.json()
+            return data["id"]
+
+    async def send_message(self, session_id: str, content: str):
+        """
+        Send a message to a specific OpenCode session.
+        """
+        if not self.session:
+            raise RuntimeError("ClientSession not initialized. Call connect() first.")
+            
+        url = f"{self.base_url}/session/{session_id}/message"
+        payload = {
+            "parts": [{"text": content}]
+        }
+        async with self.session.post(url, json=payload) as response:
+            response.raise_for_status()
+            return await response.json()
 
     async def on_message(self, data: dict):
         """
-        Hook to handle incoming messages.
-        Mock format handled: {"type": "tool_start", "tool": "bash", "channel_id": 123, "task_id": "abc"}
+        Hook to handle incoming messages (for SSE or other usage).
         """
         logger.debug(f"Received message: {data}")
         msg_type = data.get("type")
@@ -139,25 +142,8 @@ class OpenCodeWSClient:
                 question_id = data.get("question_id")
                 
                 async def on_answer(answers: list[str]):
-                    await self.send_message({
-                        "type": "answer",
-                        "channel_id": channel_id,
-                        "question_id": question_id,
-                        "answers": answers
-                    })
+                    # Temporary mock implementation or replace with new API endpoint if needed
+                    logger.info(f"Answered question {question_id} with {answers}")
                     
                 view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
                 await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
-
-    async def send_message(self, data: dict):
-        """
-        Send a JSON message to the WebSocket server.
-        """
-        await self._connected.wait()
-        if self.connection:
-            try:
-                message = json.dumps(data)
-                await self.connection.send(message)
-                logger.debug(f"Sent message: {message}")
-            except Exception as e:
-                logger.error(f"Failed to send message: {e}")
