@@ -10,6 +10,9 @@ dependencies = [
     "websockets>=12.0",
 ]
 
+[tool.uv]
+package = false
+
 [dependency-groups]
 dev = [
     "ruff>=0.15.6",
