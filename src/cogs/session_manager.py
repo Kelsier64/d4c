@@ -18,14 +18,16 @@ class SessionManager(commands.Cog):
             self.guild_states[guild_id] = {'mode': 'NORMAL', 'active_sessions': {}}
         return self.guild_states[guild_id]
 
-    @app_commands.command(name="mode", description="Toggle global operating mode (NORMAL/FULL_CONTROL)")
+    @app_commands.command(name="mode", description="Set global operating mode (NORMAL/FULL_CONTROL)")
     @app_commands.default_permissions(administrator=True)
-    async def toggle_mode(self, interaction: discord.Interaction):
+    @app_commands.describe(mode="Operating mode to set")
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="Normal Mode", value="NORMAL"),
+        app_commands.Choice(name="Full Control Mode", value="FULL_CONTROL"),
+    ])
+    async def set_mode(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
         state = self.get_guild_state(interaction.guild_id)
-        if state['mode'] == 'NORMAL':
-            state['mode'] = 'FULL_CONTROL'
-        else:
-            state['mode'] = 'NORMAL'
+        state['mode'] = mode.value
         await interaction.response.send_message(f"✅ Global mode changed to: **{state['mode']}**")
 
     @app_commands.command(name="new", description="Register the current channel as an active session")
@@ -44,8 +46,13 @@ class SessionManager(commands.Cog):
             await interaction.response.send_message("⚠️ This channel is already an active session.", ephemeral=True)
             return
 
-        state['active_sessions'][channel_id] = {"agent": "default"}
-        await interaction.response.send_message("✅ Channel registered as a new session. You can now chat with the agent.")
+        try:
+            session_id = await self.bot.opencode_client.create_session()
+            self.bot.opencode_client.register_session(session_id, channel_id)
+            state['active_sessions'][channel_id] = {"agent": "default", "opencode_session_id": session_id}
+            await interaction.response.send_message("✅ Channel registered as a new session. You can now chat with the agent.")
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to create OpenCode session: {e}", ephemeral=True)
 
     @app_commands.command(name="exit", description="End the current session")
     async def exit_session(self, interaction: discord.Interaction):
@@ -58,6 +65,14 @@ class SessionManager(commands.Cog):
         if channel_id not in state['active_sessions']:
             await interaction.response.send_message("⚠️ This channel is not an active session.", ephemeral=True)
             return
+
+        # Try to delete session from OpenCode
+        session_id = state['active_sessions'][channel_id].get("opencode_session_id")
+        if session_id:
+            try:
+                await self.bot.opencode_client.delete_session(session_id)
+            except Exception as e:
+                print(f"Failed to delete OpenCode session {session_id}: {e}")
 
         # Remove the session
         del state['active_sessions'][channel_id]
@@ -76,7 +91,13 @@ class SessionManager(commands.Cog):
 
     @app_commands.command(name="agent", description="Switch the agent for the current session")
     @app_commands.describe(agent_name="Name of the agent to switch to")
-    async def switch_agent(self, interaction: discord.Interaction, agent_name: str):
+    @app_commands.choices(agent_name=[
+        app_commands.Choice(name="Default Agent", value="default"),
+        app_commands.Choice(name="General Agent", value="general"),
+        app_commands.Choice(name="Explore Agent", value="explore"),
+        app_commands.Choice(name="Code Reviewer", value="code-reviewer"),
+    ])
+    async def switch_agent(self, interaction: discord.Interaction, agent_name: app_commands.Choice[str]):
         state = self.get_guild_state(interaction.guild_id)
         channel_id = interaction.channel_id
         if not channel_id:
@@ -87,11 +108,12 @@ class SessionManager(commands.Cog):
             await interaction.response.send_message("⚠️ This channel is not an active session. Use `/new` first.", ephemeral=True)
             return
 
+        agent_value = agent_name.value
         # Placeholder for WS integration
-        print(f"[WS Placeholder] Sending agent switch command for channel {channel_id} to agent: {agent_name}")
-        state['active_sessions'][channel_id]["agent"] = agent_name
+        print(f"[WS Placeholder] Sending agent switch command for channel {channel_id} to agent: {agent_value}")
+        state['active_sessions'][channel_id]["agent"] = agent_value
         
-        await interaction.response.send_message(f"🔄 Switched agent to **{agent_name}** for this session. (Placeholder)")
+        await interaction.response.send_message(f"🔄 Switched agent to **{agent_value}** for this session. (Placeholder)")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -130,10 +152,17 @@ class SessionManager(commands.Cog):
                 new_welcome = await guild.create_text_channel('welcome', category=category)
                 await new_welcome.send("👋 Welcome! Send a message here to start a new task session.")
 
+                # Create OpenCode session
+                session_id = await self.bot.opencode_client.create_session()
+                self.bot.opencode_client.register_session(session_id, message.channel.id)
+
                 # Register the renamed channel
-                state['active_sessions'][message.channel.id] = {"agent": "default"}
+                state['active_sessions'][message.channel.id] = {"agent": "default", "opencode_session_id": session_id}
                 
                 await reply.edit(content=f"✅ Session started! I have renamed this channel to `#{new_channel_name}` and created a new <#{new_welcome.id}> channel.")
+                
+                # Send the initial message to OpenCode
+                await self.bot.opencode_client.send_message(session_id, message.content)
                 
             except discord.Forbidden:
                 await reply.edit(content="❌ I don't have permission to manage channels!")
@@ -141,6 +170,14 @@ class SessionManager(commands.Cog):
                 await reply.edit(content=f"❌ Failed to communicate with Discord: {str(e)}")
             except Exception as e:
                 await reply.edit(content=f"❌ An error occurred: {str(e)}")
+                
+        elif message.channel.id in state['active_sessions']:
+            session_id = state['active_sessions'][message.channel.id].get("opencode_session_id")
+            if session_id:
+                try:
+                    await self.bot.opencode_client.send_message(session_id, message.content)
+                except Exception as e:
+                    await message.channel.send(f"❌ Failed to send message to OpenCode: {e}")
 
 
 class ExitConfirmView(discord.ui.View):

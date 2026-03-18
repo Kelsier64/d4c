@@ -86,6 +86,12 @@ class OpenCodeClient:
         if self.session:
             await self.session.close()
 
+    def register_session(self, session_id: str, channel_id: int):
+        """
+        Map an OpenCode session to a Discord channel ID.
+        """
+        self.session_to_channel[session_id] = channel_id
+
     async def create_session(self) -> str:
         """
         Create a new OpenCode session via REST.
@@ -99,6 +105,20 @@ class OpenCodeClient:
             response.raise_for_status()
             data = await response.json()
             return data["id"]
+
+    async def delete_session(self, session_id: str):
+        """
+        Delete an OpenCode session via REST and unregister it.
+        """
+        if not self.session:
+            raise RuntimeError("ClientSession not initialized. Call connect() first.")
+            
+        url = f"{self.base_url}/session/{session_id}"
+        async with self.session.delete(url) as response:
+            response.raise_for_status()
+            
+        if session_id in self.session_to_channel:
+            del self.session_to_channel[session_id]
 
     async def send_message(self, session_id: str, content: str):
         """
@@ -166,6 +186,7 @@ class OpenCodeClient:
                     logger.info(f"Connected to OpenCode SSE stream at {url}")
                     async for line in response.content:
                         line = line.strip()
+                        data_str = ""
                         if line.startswith(b"data: "):
                             try:
                                 data_str = line[6:].decode("utf-8").strip()
