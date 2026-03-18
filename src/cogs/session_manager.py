@@ -208,6 +208,9 @@ class SessionManager(commands.Cog):
                 await reply.edit(content=f"✅ Session started! I have renamed this channel to `#{new_channel_name}` and created a new <#{new_welcome.id}> channel.")
                 
                 # Send the initial message to OpenCode
+                channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
+                if channel_state:
+                    channel_state.clear_turn()
                 response_data = await self.bot.opencode_client.send_message(session_id, message.content)
                 await self._handle_opencode_response(message.channel, response_data)
                 
@@ -222,6 +225,9 @@ class SessionManager(commands.Cog):
             session_id = state['active_sessions'][message.channel.id].get("opencode_session_id")
             if session_id:
                 try:
+                    channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
+                    if channel_state:
+                        channel_state.clear_turn()
                     response_data = await self.bot.opencode_client.send_message(session_id, message.content)
                     await self._handle_opencode_response(message.channel, response_data)
                 except Exception as e:

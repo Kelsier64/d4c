@@ -19,7 +19,27 @@ class ChannelProgressState:
         self.debouncer = AsyncDebouncer(delay=3.0)
         self._debounced_render = self.debouncer(self._render)
 
+    def clear_turn(self):
+        """Called when a new user message is sent to reset the progress state for a new turn."""
+        self.message = None
+        self.manager.history.clear()
+
     async def _edit_message_with_retry(self, embed: discord.Embed):
+        # If we have an existing message, ensure it is the most recent message in the channel.
+        # If it's not, we delete it and send a new one so the progress stays at the bottom.
+        if self.message is not None:
+            try:
+                async for msg in self.channel.history(limit=1):
+                    if msg.id != self.message.id:
+                        try:
+                            await self.message.delete()
+                        except discord.NotFound:
+                            pass
+                        self.message = None
+                    break
+            except Exception as e:
+                logger.warning(f"Failed to check channel history for progress embed: {e}")
+
         retries = 3
         backoff = 1.0
         for attempt in range(retries):
@@ -221,6 +241,7 @@ class OpenCodeClient:
                                         question_text = q_data.get("question", "Question from OpenCode")
                                         options = q_data.get("options", [])
                                         multiple = q_data.get("multiple", False)
+                                        custom = q_data.get("custom", True)
                                         request_id = props.get("id")
                                         
                                         if not options or not request_id:
@@ -232,10 +253,16 @@ class OpenCodeClient:
                                                 return
                                             # Reply to question endpoint directly
                                             url = f"{self.base_url}/question/{request_id}/reply"
+                                            # Filter out the "custom_input" value if it was selected along with a real answer in a multi-select
+                                            filtered_answers = [ans for ans in answers if ans != "custom_input"]
+                                            if not filtered_answers:
+                                                # If empty (meaning only custom_input was somehow sent to the callback, though it should be caught by Modal)
+                                                return
+                                                
                                             # The API expects an array of arrays if there are multiple questions,
                                             # but since we only process one question at a time, we wrap answers in an array.
                                             payload = {
-                                                "answers": [answers]
+                                                "answers": [filtered_answers]
                                             }
                                             try:
                                                 async with self.session.post(url, json=payload) as response:
@@ -243,14 +270,14 @@ class OpenCodeClient:
                                                         logger.warning(f"Failed to submit answer to question API. Status: {response.status}")
                                                         # Fallback to sending as a text message
                                                         msg_url = f"{self.base_url}/session/{session_id}/message"
-                                                        text_payload = {"parts": [{"type": "text", "text": ", ".join(answers)}]}
+                                                        text_payload = {"parts": [{"type": "text", "text": ", ".join(filtered_answers)}]}
                                                         await self.session.post(msg_url, json=text_payload)
                                                     else:
                                                         logger.info(f"Successfully submitted answer for {request_id}")
                                             except Exception as e:
                                                 logger.error(f"Error submitting answer: {e}")
 
-                                        view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer)
+                                        view = OpenCodeView(options_data=options, multiple=multiple, on_answer=on_answer, custom=custom)
                                         await state.channel.send(content=f"🤖 **[OpenCode]**\n{question_text}", view=view)
                                         
                                 elif payload.get("type") == "message.part.updated":

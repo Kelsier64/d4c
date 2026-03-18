@@ -34,10 +34,12 @@ class CustomInputModal(Modal):
 
 
 class QuestionSelect(Select):
-    def __init__(self, options_data: list[dict], multiple: bool, on_answer):
+    def __init__(self, options_data: list[dict], multiple: bool, on_answer, custom: bool = True):
         self.on_answer_callback = on_answer
         
-        max_values = len(options_data) if multiple else 1
+        # Max values cannot be larger than the number of options (including custom option)
+        total_options = len(options_data) + (1 if custom else 0)
+        max_values = total_options if multiple else 1
         if max_values < 1:
             max_values = 1
             
@@ -59,6 +61,14 @@ class QuestionSelect(Select):
                 
             select_options.append(discord.SelectOption(label=label, value=value, description=description))
             
+        if custom:
+            select_options.append(discord.SelectOption(
+                label="Type your own answer",
+                value="custom_input",
+                description="Click here to type a custom response",
+                emoji="⌨️"
+            ))
+            
         super().__init__(
             placeholder="Choose an option...",
             min_values=1,
@@ -71,7 +81,7 @@ class QuestionSelect(Select):
             return
 
         # Check if 'custom' is selected
-        is_custom = any("custom" in val.lower() or "自行輸入答案" in val for val in self.values)
+        is_custom = any(val == "custom_input" or "自行輸入答案" in val for val in self.values)
         
         if is_custom:
             # We need to send the modal
@@ -97,6 +107,6 @@ class QuestionSelect(Select):
 
 
 class OpenCodeView(View):
-    def __init__(self, options_data: list[dict], multiple: bool, on_answer):
+    def __init__(self, options_data: list[dict], multiple: bool, on_answer, custom: bool = True):
         super().__init__(timeout=None)
-        self.add_item(QuestionSelect(options_data, multiple, on_answer))
+        self.add_item(QuestionSelect(options_data, multiple, on_answer, custom))
