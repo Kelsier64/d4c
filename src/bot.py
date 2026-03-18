@@ -16,6 +16,8 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Load cogs
+        await self.load_extension("src.cogs.session_manager")
         # 同步 Slash Commands 到 Discord 伺服器
         await self.tree.sync()
         print(f"✅ 成功同步 Slash Commands")
