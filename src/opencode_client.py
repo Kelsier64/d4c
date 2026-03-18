@@ -186,7 +186,6 @@ class OpenCodeClient:
                     logger.info(f"Connected to OpenCode SSE stream at {url}")
                     async for line in response.content:
                         line = line.strip()
-                        data_str = ""
                         if line.startswith(b"data: "):
                             try:
                                 data_str = line[6:].decode("utf-8").strip()

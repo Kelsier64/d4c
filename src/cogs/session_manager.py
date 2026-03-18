@@ -3,6 +3,9 @@ from discord import app_commands
 from discord.ext import commands
 import uuid
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SessionManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -72,7 +75,7 @@ class SessionManager(commands.Cog):
             try:
                 await self.bot.opencode_client.delete_session(session_id)
             except Exception as e:
-                print(f"Failed to delete OpenCode session {session_id}: {e}")
+                logger.error(f"Failed to delete OpenCode session {session_id}: {e}")
 
         # Remove the session
         del state['active_sessions'][channel_id]
@@ -124,6 +127,10 @@ class SessionManager(commands.Cog):
         if not isinstance(message.channel, discord.TextChannel):
             return
 
+        # Ignore messages with no text content
+        if not message.content.strip():
+            return
+
         guild = message.guild
         if not guild:
             return
@@ -144,17 +151,17 @@ class SessionManager(commands.Cog):
             reply = await message.reply(f"🔄 Processing your request... creating session `{new_channel_name}`")
 
             try:
-                # Rename the old welcome channel FIRST to task-{uuid}
+                # Create OpenCode session FIRST so we don't mutate Discord on API failure
+                session_id = await self.bot.opencode_client.create_session()
+                self.bot.opencode_client.register_session(session_id, message.channel.id)
+
+                # Rename the old welcome channel to task-{uuid}
                 await message.channel.edit(name=new_channel_name)
                 
                 # THEN create a new #welcome channel
                 category = message.channel.category
                 new_welcome = await guild.create_text_channel('welcome', category=category)
                 await new_welcome.send("👋 Welcome! Send a message here to start a new task session.")
-
-                # Create OpenCode session
-                session_id = await self.bot.opencode_client.create_session()
-                self.bot.opencode_client.register_session(session_id, message.channel.id)
 
                 # Register the renamed channel
                 state['active_sessions'][message.channel.id] = {"agent": "default", "opencode_session_id": session_id}
