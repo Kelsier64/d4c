@@ -19,7 +19,7 @@ class SessionManager(commands.Cog):
         if not guild_id:
             guild_id = 0
         if guild_id not in self.guild_states:
-            self.guild_states[guild_id] = {'mode': 'NORMAL', 'active_sessions': {}}
+            self.guild_states[guild_id] = {'mode': 'NORMAL', 'active_sessions': {}, 'pending_agent': 'default'}
         return self.guild_states[guild_id]
 
     @app_commands.command(name="mode", description="Set global operating mode (NORMAL/FULL_CONTROL)")
@@ -111,10 +111,8 @@ class SessionManager(commands.Cog):
     @app_commands.command(name="agent", description="Switch the agent for the current session")
     @app_commands.describe(agent_name="Name of the agent to switch to")
     @app_commands.choices(agent_name=[
-        app_commands.Choice(name="Default Agent", value="default"),
-        app_commands.Choice(name="General Agent", value="general"),
-        app_commands.Choice(name="Explore Agent", value="explore"),
-        app_commands.Choice(name="Code Reviewer", value="code-reviewer"),
+        app_commands.Choice(name="Build Agent", value="build"),
+        app_commands.Choice(name="Plan Agent", value="plan"),
     ])
     async def switch_agent(self, interaction: discord.Interaction, agent_name: app_commands.Choice[str]):
         state = self.get_guild_state(interaction.guild_id)
@@ -123,16 +121,20 @@ class SessionManager(commands.Cog):
             await interaction.response.send_message("⚠️ Could not determine channel.", ephemeral=True)
             return
 
+        agent_value = agent_name.value
+        
         if channel_id not in state['active_sessions']:
+            channel = interaction.channel
+            if state.get('mode') == 'FULL_CONTROL' and getattr(channel, 'name', '') == 'welcome':
+                state['pending_agent'] = agent_value
+                await interaction.response.send_message(f"🔄 Set agent to **{agent_name.name} ({agent_value})** for the upcoming session.")
+                return
             await interaction.response.send_message("⚠️ This channel is not an active session. Use `/new` first.", ephemeral=True)
             return
 
-        agent_value = agent_name.value
-        # Placeholder for WS integration
-        print(f"[WS Placeholder] Sending agent switch command for channel {channel_id} to agent: {agent_value}")
         state['active_sessions'][channel_id]["agent"] = agent_value
         
-        await interaction.response.send_message(f"🔄 Switched agent to **{agent_value}** for this session. (Placeholder)")
+        await interaction.response.send_message(f"🔄 Switched agent to **{agent_name.name} ({agent_value})** for this session.")
 
     async def _handle_opencode_response(self, channel: discord.TextChannel, response_data: dict):
         """Helper to extract text parts from OpenCode response and send to Discord."""
@@ -202,16 +204,25 @@ class SessionManager(commands.Cog):
                 new_welcome = await guild.create_text_channel('welcome', category=original_category)
                 await new_welcome.send("👋 Welcome! Send a message here to start a new task session.")
 
+                # Get the pending agent and reset it
+                pending_agent = state.get('pending_agent', 'default')
+                state['pending_agent'] = 'default'
+
                 # Register the renamed channel
-                state['active_sessions'][message.channel.id] = {"agent": "default", "opencode_session_id": session_id}
+                state['active_sessions'][message.channel.id] = {"agent": pending_agent, "opencode_session_id": session_id}
                 
-                await reply.edit(content=f"✅ Session started! I have renamed this channel to `#{new_channel_name}` and created a new <#{new_welcome.id}> channel.")
+                await reply.edit(content=f"✅ Session started!")
                 
                 # Send the initial message to OpenCode
                 channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
                 if channel_state:
                     channel_state.clear_turn()
-                response_data = await self.bot.opencode_client.send_message(session_id, message.content)
+                
+                agent = state['active_sessions'][message.channel.id].get("agent")
+                if agent == "default":
+                    agent = None
+                    
+                response_data = await self.bot.opencode_client.send_message(session_id, message.content, agent=agent)
                 await self._handle_opencode_response(message.channel, response_data)
                 
             except discord.Forbidden:
@@ -228,7 +239,10 @@ class SessionManager(commands.Cog):
                     channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
                     if channel_state:
                         channel_state.clear_turn()
-                    response_data = await self.bot.opencode_client.send_message(session_id, message.content)
+                    agent = state["active_sessions"][message.channel.id].get("agent")
+                    if agent == "default":
+                        agent = None
+                    response_data = await self.bot.opencode_client.send_message(session_id, message.content, agent=agent)
                     await self._handle_opencode_response(message.channel, response_data)
                 except Exception as e:
                     await message.channel.send(f"❌ Failed to send message to OpenCode: {e}")

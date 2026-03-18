@@ -80,8 +80,8 @@ class QuestionSelect(Select):
         if not self.view or not interaction.message:
             return
 
-        # Check if 'custom' is selected
-        is_custom = any(val == "custom_input" or "自行輸入答案" in val for val in self.values)
+        # Check whether the custom input option was selected.
+        is_custom = any(val == "custom_input" for val in self.values)
         
         if is_custom:
             # We need to send the modal

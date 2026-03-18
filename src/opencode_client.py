@@ -144,7 +144,7 @@ class OpenCodeClient:
         if session_id in self.session_to_channel:
             del self.session_to_channel[session_id]
 
-    async def send_message(self, session_id: str, content: str):
+    async def send_message(self, session_id: str, content: str, agent: str | None = None):
         """
         Send a message to a specific OpenCode session.
         """
@@ -152,9 +152,12 @@ class OpenCodeClient:
             raise RuntimeError("ClientSession not initialized. Call connect() first.")
             
         url = f"{self.base_url}/session/{session_id}/message"
-        payload = {
+        payload: dict = {
             "parts": [{"type": "text", "text": content}]
         }
+        if agent:
+            payload["agent"] = agent
+            
         async with self.session.post(url, json=payload) as response:
             response.raise_for_status()
             return await response.json()
