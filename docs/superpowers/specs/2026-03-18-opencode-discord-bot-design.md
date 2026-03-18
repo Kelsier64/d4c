@@ -15,7 +15,8 @@ Bot 支援兩種運行模式，並可透過 Slash Command 切換。
 
 ### 3.1 完全控制模式 (Full Control Mode)
 *   **入口**: 伺服器中固定存在一個 `#welcome` 頻道作為首頁。
-*   **觸發**: 使用者在 `#welcome` 發送第一則訊息時，Bot 會將該頻道重新命名為任務名稱 (例如 `#task-build-bot`)，並自動建立一個全新的 `#welcome` 頻道。
+*   **觸發**: 使用者在 `#welcome` 發送第一則訊息時，Bot 會鎖定該頻道並將其重新命名為任務名稱 (例如 `#task-build-bot`)，隨後自動建立一個全新的 `#welcome` 頻道。
+*   **清理機制 (Channel Cleanup)**: 當任務完成或呼叫結束指令時，Bot 可提供選項將該頻道封存 (Archive) 或刪除，避免達到 Discord 的 500 個頻道上限。
 *   **Session**: 每個改名後的頻道代表一個獨立的 OpenCode Session。
 
 ### 3.2 正常監聽模式 (Normal Mode)
@@ -27,7 +28,8 @@ Bot 支援兩種運行模式，並可透過 Slash Command 切換。
 
 ### 4.1 即時進度展示 (Progress Embed)
 *   **動態更新**: Bot 使用 Embed 顯示 OpenCode 目前的執行進度 (如 `bash`, `read`, `write`)。
-*   **Debounce 機制**: 為避免觸發 Discord API Rate Limit，Embed 更新頻率限制為每 1.5 - 2.0 秒一次。
+*   **Debounce 機制**: 為避免觸發 Discord API Rate Limit (5 edits per 5 seconds)，Embed 更新頻率限制為每 2.5 - 3.0 秒一次。
+*   **重試處理 (Retry Handler)**: 遇到 HTTP 429 錯誤時，Bot 需具備退避重試的邏輯 (Exponential Backoff)，以保證 UI 最終能正確更新而不被 API 暫時封鎖。
 *   **視覺設計**: 執行中為黃色，完成為綠色，錯誤為紅色。顯示最近執行的 3-5 個工具。
 
 ### 4.2 互動提問 (Interactive Questions)
