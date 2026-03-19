@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import logging
 import os
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,38 @@ class SessionManager(commands.Cog):
         # Dictionary tracking state per guild
         # Format: {guild_id: {'mode': 'NORMAL', 'active_sessions': {channel_id: {"agent": "default", ...}}}}
         self.guild_states: dict[int, dict] = {}
+        # Persistent state file
+        self.state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "state.json")
+        self._load_state()
+
+    def _load_state(self):
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for guild_id_str, guild_data in data.items():
+                        guild_id = int(guild_id_str)
+                        self.guild_states[guild_id] = {
+                            'mode': guild_data.get('mode', 'NORMAL'),
+                            'pending_agent': guild_data.get('pending_agent', 'default'),
+                            'active_sessions': {}
+                        }
+                        for channel_id_str, session_data in guild_data.get('active_sessions', {}).items():
+                            channel_id = int(channel_id_str)
+                            self.guild_states[guild_id]['active_sessions'][channel_id] = session_data
+                            session_id = session_data.get("opencode_session_id")
+                            if session_id and hasattr(self.bot, 'opencode_client'):
+                                self.bot.opencode_client.register_session(session_id, channel_id)
+                logger.info("Session state loaded successfully.")
+            except Exception as e:
+                logger.error(f"Failed to load state: {e}")
+
+    def _save_state(self):
+        try:
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(self.guild_states, f, indent=4)
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}")
 
     def get_guild_state(self, guild_id: int | None) -> dict:
         if not guild_id:
@@ -32,6 +65,7 @@ class SessionManager(commands.Cog):
     async def set_mode(self, interaction: discord.Interaction, mode: app_commands.Choice[str]):
         state = self.get_guild_state(interaction.guild_id)
         state['mode'] = mode.value
+        self._save_state()
         await interaction.response.send_message(f"✅ Global mode changed to: **{state['mode']}**")
 
     @app_commands.command(name="new", description="Register the current channel as an active session")
@@ -54,6 +88,7 @@ class SessionManager(commands.Cog):
             session_id, directory = await self.bot.opencode_client.create_session()
             self.bot.opencode_client.register_session(session_id, channel_id)
             state['active_sessions'][channel_id] = {"agent": "default", "opencode_session_id": session_id}
+            self._save_state()
             
             project_name = os.path.basename(directory.rstrip('/')) if directory else "OpenCode"
             guild = interaction.guild
@@ -95,6 +130,7 @@ class SessionManager(commands.Cog):
 
         # Remove the session
         del state['active_sessions'][channel_id]
+        self._save_state()
 
         if state['mode'] == 'FULL_CONTROL':
             # In FULL_CONTROL mode, we offer to delete or archive the channel
@@ -127,12 +163,14 @@ class SessionManager(commands.Cog):
             channel = interaction.channel
             if state.get('mode') == 'FULL_CONTROL' and getattr(channel, 'name', '') == 'welcome':
                 state['pending_agent'] = agent_value
+                self._save_state()
                 await interaction.response.send_message(f"🔄 Set agent to **{agent_name.name} ({agent_value})** for the upcoming session.")
                 return
             await interaction.response.send_message("⚠️ This channel is not an active session. Use `/new` first.", ephemeral=True)
             return
 
         state['active_sessions'][channel_id]["agent"] = agent_value
+        self._save_state()
         
         await interaction.response.send_message(f"🔄 Switched agent to **{agent_name.name} ({agent_value})** for this session.")
 
@@ -210,11 +248,12 @@ class SessionManager(commands.Cog):
 
                 # Register the renamed channel
                 state['active_sessions'][message.channel.id] = {"agent": pending_agent, "opencode_session_id": session_id}
+                self._save_state()
                 
                 await reply.edit(content=f"✅ Session started!")
                 
                 # Send the initial message to OpenCode
-                channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
+                channel_state = await self.bot.opencode_client.get_channel_state(message.channel.id)
                 if channel_state:
                     channel_state.clear_turn()
                 
@@ -236,7 +275,7 @@ class SessionManager(commands.Cog):
             session_id = state['active_sessions'][message.channel.id].get("opencode_session_id")
             if session_id:
                 try:
-                    channel_state = self.bot.opencode_client.get_channel_state(message.channel.id)
+                    channel_state = await self.bot.opencode_client.get_channel_state(message.channel.id)
                     if channel_state:
                         channel_state.clear_turn()
                     agent = state["active_sessions"][message.channel.id].get("agent")

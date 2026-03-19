@@ -32,10 +32,10 @@ class MyBot(commands.Bot):
         # Load cogs and register slash commands.
         await self.load_extension("src.cogs.session_manager")
         await self.tree.sync()
-        print("✅ Slash commands synced successfully")
+        print("Slash commands synced successfully")
 
     async def on_ready(self):
-        print(f"🤖 Logged in successfully as: {self.user} (ID: {self.user.id})")
+        print(f"Logged in successfully as: {self.user} (ID: {self.user.id})")
         print("------")
 
     async def close(self):
@@ -54,21 +54,21 @@ async def setup_welcome(interaction: discord.Interaction):
     existing_channel = discord.utils.get(guild.text_channels, name="welcome")
     
     if existing_channel:
-        await interaction.response.send_message(f"⚠️ Channel {existing_channel.mention} already exists.", ephemeral=True)
+        await interaction.response.send_message(f"Channel {existing_channel.mention} already exists.", ephemeral=True)
         return
 
     try:
         # Create the text channel.
         channel = await guild.create_text_channel('welcome')
-        await interaction.response.send_message(f"✅ Welcome channel created: {channel.mention}")
+        await interaction.response.send_message(f"Welcome channel created: {channel.mention}")
     except discord.Forbidden:
-        await interaction.response.send_message("❌ I do not have permission to create channels. Please check my role permissions.", ephemeral=True)
+        await interaction.response.send_message("I do not have permission to create channels. Please check my role permissions.", ephemeral=True)
 
 def main():
     # Support DISCORD_TOKEN, TOKEN, or DISCORD_BOT_TOKEN.
     token = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
     if not token:
-        print("❌ Error: Discord token not found. Set DISCORD_TOKEN (or TOKEN / DISCORD_BOT_TOKEN) in .env.")
+        print("Error: Discord token not found. Set DISCORD_TOKEN (or TOKEN / DISCORD_BOT_TOKEN) in .env.")
         sys.exit(1)
         
     bot.run(token)

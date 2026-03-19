@@ -87,10 +87,20 @@ class OpenCodeClient:
         password = os.getenv("OPENCODE_SERVER_PASSWORD")
         self.auth = aiohttp.BasicAuth("opencode", password) if password else None
 
-    def get_channel_state(self, channel_id: int) -> ChannelProgressState | None:
+    async def get_channel_state(self, channel_id: int) -> ChannelProgressState | None:
         if channel_id not in self.channel_states:
             if self.bot:
                 channel = self.bot.get_channel(channel_id)
+                if not channel:
+                    try:
+                        channel = await self.bot.fetch_channel(channel_id)
+                    except discord.NotFound:
+                        pass
+                    except discord.Forbidden:
+                        logger.warning(f"Forbidden to fetch channel {channel_id}.")
+                    except Exception as e:
+                        logger.error(f"Error fetching channel {channel_id}: {e}")
+                        
                 if isinstance(channel, discord.TextChannel):
                     self.channel_states[channel_id] = ChannelProgressState(channel)
         return self.channel_states.get(channel_id)
@@ -171,7 +181,7 @@ class OpenCodeClient:
         channel_id = data.get("channel_id")
         
         if channel_id and msg_type in ["tool_start", "tool_end", "tool_error"]:
-            state = self.get_channel_state(int(channel_id))
+            state = await self.get_channel_state(int(channel_id))
             if state:
                 task_id = data.get("task_id", "unknown_task")
                 tool = data.get("tool", "unknown_tool")
@@ -185,7 +195,7 @@ class OpenCodeClient:
                 
                 await state.update_and_render(task_id, tool, status, details)
         elif channel_id and msg_type == "question":
-            state = self.get_channel_state(int(channel_id))
+            state = await self.get_channel_state(int(channel_id))
             if state:
                 question_text = data.get("question", "Please select an option:")
                 options = data.get("options", [])
@@ -232,7 +242,7 @@ class OpenCodeClient:
                                         if not channel_id:
                                             continue
 
-                                        state = self.get_channel_state(channel_id)
+                                        state = await self.get_channel_state(channel_id)
                                         if not state:
                                             continue
                                             
@@ -295,7 +305,7 @@ class OpenCodeClient:
                                     if not channel_id:
                                         continue
 
-                                    state = self.get_channel_state(channel_id)
+                                    state = await self.get_channel_state(channel_id)
                                     if not state:
                                         continue
 
