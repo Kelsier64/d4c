@@ -58,10 +58,23 @@ This will spin up the backend agent listener. The Discord bot will use this exac
    ```
 
 4. **Start the bot:**
-   Run the bot as a Python module to ensure internal imports resolve correctly:
+   There are two primary ways to run the bot:
+
+   **Method A: Standard Run (Within project directory)**
    ```bash
-   uv run python -m src.bot
+   uv run python src/bot.py
    ```
+
+   **Method B: Global CLI Installation (Run from anywhere)**
+   Because the project is configured as a Python package, you can install it in editable mode. This exposes a global `d4c-bot` command inside the virtual environment:
+   ```bash
+   uv pip install -e .
+   ```
+   Now you can start the bot from *any* directory on your system by providing the absolute path to the virtual environment's executable:
+   ```bash
+   /path/to/your/d4c/.venv/bin/d4c-bot
+   ```
+   *(For example: `/home/user/Projects/d4c/.venv/bin/d4c-bot`)*
 
 ## Usage
 

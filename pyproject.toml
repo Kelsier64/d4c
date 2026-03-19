@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "d4c"
 version = "0.1.0"
@@ -10,8 +14,14 @@ dependencies = [
     "aiohttp>=3.9.0",
 ]
 
+[project.scripts]
+d4c-bot = "src.bot:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
 [tool.uv]
-package = false
+package = true
 
 [dependency-groups]
 dev = [

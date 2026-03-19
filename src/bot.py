@@ -1,11 +1,19 @@
 import os
+import sys
+from pathlib import Path
 import discord
 from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
 
-# Load environment variables from the .env file.
-load_dotenv()
+# Set up project root in sys.path so that 'src.' imports work from anywhere.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Load environment variables from the .env file in the project root.
+env_path = PROJECT_ROOT / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # Configure bot intents.
 intents = discord.Intents.default()
@@ -56,12 +64,15 @@ async def setup_welcome(interaction: discord.Interaction):
     except discord.Forbidden:
         await interaction.response.send_message("❌ I do not have permission to create channels. Please check my role permissions.", ephemeral=True)
 
-# Entry point.
-if __name__ == "__main__":
+def main():
     # Support DISCORD_TOKEN, TOKEN, or DISCORD_BOT_TOKEN.
     token = os.getenv("DISCORD_TOKEN") or os.getenv("TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         print("❌ Error: Discord token not found. Set DISCORD_TOKEN (or TOKEN / DISCORD_BOT_TOKEN) in .env.")
-        exit(1)
+        sys.exit(1)
         
     bot.run(token)
+
+# Entry point.
+if __name__ == "__main__":
+    main()
